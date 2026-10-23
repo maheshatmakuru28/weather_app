@@ -1,278 +1,73 @@
-from flask import Flask, render_template_string, request
 import requests
-app = Flask(__name__)
+import pandas as pd
+import streamlit as st
 
-HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SkyCast Weather</title>
+st.set_page_config(page_title="Weather App", page_icon="🌤️")
+st.title("🌤️ Weather App")
+GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
+WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 
-    <style>
-        * {
-            box-sizing: border-box;
-        }
+WEATHER_CODES = {
+    0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+    45: "Fog", 48: "Rime fog",
+    51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle",
+    61: "Light rain", 63: "Rain", 65: "Heavy rain",
+    71: "Light snow", 73: "Snow", 75: "Heavy snow",
+    80: "Rain showers", 81: "Heavy showers", 82: "Violent showers",
+    95: "Thunderstorm", 96: "Thunderstorm with hail", 99: "Severe thunderstorm",
+}
 
-        body {
-            margin: 0;
-            min-height: 100vh;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            color: white;
-            background: linear-gradient(135deg, #101b46, #2855a6, #20b8c5);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 25px;
-        }
 
-        .container {
-            width: 100%;
-            max-width: 520px;
-            text-align: center;
-        }
+@st.cache_data(ttl=600)
+def geocode(city: str):
+    r = requests.get(GEO_URL, params={"name": city, "count": 1}, timeout=10)
+    r.raise_for_status()
+    results = r.json().get("results")
+    return results[0] if results else None
 
-        .brand {
-            font-size: 30px;
-            font-weight: 800;
-            margin-bottom: 8px;
-            letter-spacing: 1px;
-        }
 
-        .subtitle {
-            color: #dbeafe;
-            margin-bottom: 28px;
-        }
+@st.cache_data(ttl=600)
+def get_weather(lat: float, lon: float):
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code",
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
+        "timezone": "auto",
+    }
+    r = requests.get(WEATHER_URL, params=params, timeout=10)
+    r.raise_for_status()
+    return r.json()
 
-        .card {
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 28px;
-            padding: 30px 24px;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
-        }
 
-        form {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 25px;
-        }
+city = st.text_input("Enter a city", value="Nellore")
 
-        input {
-            flex: 1;
-            min-width: 0;
-            padding: 14px;
-            border-radius: 14px;
-            border: 1px solid rgba(255, 255, 255, 0.5);
-            outline: none;
-            font-size: 16px;
-        }
-
-        button {
-            padding: 14px 18px;
-            border: none;
-            border-radius: 14px;
-            background: #ffe082;
-            color: #172554;
-            font-size: 15px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: 0.2s;
-        }
-
-        button:hover {
-            background: #ffffff;
-            transform: translateY(-2px);
-        }
-
-        .city {
-            font-size: 27px;
-            font-weight: 700;
-            margin: 10px 0;
-        }
-
-        .weather-icon {
-            font-size: 70px;
-            margin: 12px 0;
-        }
-
-        .temperature {
-            font-size: 58px;
-            font-weight: 800;
-            margin: 5px 0;
-        }
-
-        .label {
-            color: #e0f2fe;
-            margin-bottom: 25px;
-        }
-
-        .details {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-        }
-
-        .detail {
-            background: rgba(255, 255, 255, 0.13);
-            padding: 16px 6px;
-            border-radius: 17px;
-            overflow-wrap: anywhere;
-        }
-
-        .detail-icon {
-            font-size: 25px;
-            margin-bottom: 8px;
-        }
-
-        .detail-name {
-            font-size: 12px;
-            color: #dbeafe;
-        }
-
-        .detail-value {
-            font-size: 16px;
-            font-weight: 700;
-            margin-top: 7px;
-        }
-
-        .error {
-            background: rgba(127, 29, 29, 0.5);
-            border-radius: 12px;
-            padding: 12px;
-        }
-
-        footer {
-            margin-top: 22px;
-            font-size: 12px;
-            color: #dbeafe;
-        }
-
-        @media (max-width: 420px) {
-            .card {
-                padding: 22px 14px;
-            }
-
-            form {
-                flex-direction: column;
-            }
-
-            .temperature {
-                font-size: 48px;
-            }
-
-            .detail-value {
-                font-size: 14px;
-            }
-        }
-    </style>
-</head>
-
-<body>
-    <main class="container">
-        <div class="brand">🌤️ SkyCast</div>
-        <div class="subtitle">Your personal weather dashboard</div>
-
-        <section class="card">
-            <form method="get">
-                <input
-                    type="text"
-                    name="city"
-                    placeholder="Enter city name..."
-                    value="{{ city }}"
-                    required
-                >
-                <button type="submit">Search 🔍</button>
-            </form>
-
-            {% if weather %}
-                <div class="city">📍 {{ city }}</div>
-                <div class="weather-icon">🌤️</div>
-                <div class="temperature">
-                    {{ weather.temperature }}°C
-                </div>
-                <div class="label">Current Temperature</div>
-
-                <div class="details">
-                    <div class="detail">
-                        <div class="detail-icon">💧</div>
-                        <div class="detail-name">Humidity</div>
-                        <div class="detail-value">
-                            {{ weather.humidity }}%
-                        </div>
-                    </div>
-
-                    <div class="detail">
-                        <div class="detail-icon">🌡️</div>
-                        <div class="detail-name">Feels Like</div>
-                        <div class="detail-value">
-                            {{ weather.feels_like }}°C
-                        </div>
-                    </div>
-
-                    <div class="detail">
-                        <div class="detail-icon">💨</div>
-                        <div class="detail-name">Wind Speed</div>
-                        <div class="detail-value">
-                            {{ weather.wind }} km/h
-                        </div>
-                    </div>
-                </div>
-            {% endif %}
-
-            {% if error %}
-                <p class="error">{{ error }}</p>
-            {% endif %}
-        </section>
-
-        <footer>
-            Made with ❤️ using Python & Flask
-        </footer>
-    </main>
-</body>
-</html>
-"""   
-@app.route("/")
-def home():
-    city = request.args.get("city", "Nellore")
-    weather = None
-    error = None
-
+if city:
     try:
-        geo = requests.get(
-            "https://geocoding-api.open-meteo.com/v1/search",
-            params={"name": city, "count": 1},
-            timeout=10
-        ).json()
-
-        if not geo.get("results"):
-            error = "City not found. Try another city."
+        place = geocode(city)
+        if not place:
+            st.warning("City not found. Try another name.")
         else:
-            place = geo["results"][0]
-            data = requests.get(
-                "https://api.open-meteo.com/v1/forecast",
-                params={
-                    "latitude": place["latitude"],
-                    "longitude": place["longitude"],
-                    "current": "temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m"
-                },
-                timeout=10
-            ).json()["current"]
+            data = get_weather(place["latitude"], place["longitude"])
+            cur = data["current"]
 
-            weather = {
-                "temperature": data["temperature_2m"],
-                "humidity": data["relative_humidity_2m"],
-                "feels_like": data["apparent_temperature"],
-                "wind": data["wind_speed_10m"]
-            }
-    except Exception:
-        error = "Weather data could not be loaded. Please try again."
+            st.subheader(f"{place['name']}, {place.get('country', '')}")
+            st.write(WEATHER_CODES.get(cur["weather_code"], "Unknown"))
 
-    return render_template_string(
-        HTML, city=city, weather=weather, error=error
-    )
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Temperature", f"{cur['temperature_2m']} °C")
+            c2.metric("Humidity", f"{cur['relative_humidity_2m']} %")
+            c3.metric("Wind", f"{cur['wind_speed_10m']} km/h")
 
-if __name__ == "__main__":
-    app.run(debug=True)
+            st.subheader("7-day forecast")
+            daily = pd.DataFrame({
+                "Date": data["daily"]["time"],
+                "Max °C": data["daily"]["temperature_2m_max"],
+                "Min °C": data["daily"]["temperature_2m_min"],
+                "Rain (mm)": data["daily"]["precipitation_sum"],
+            }).set_index("Date")
+
+            st.line_chart(daily[["Max °C", "Min °C"]])
+            st.dataframe(daily)
+    except requests.RequestException as e:
+        st.error(f"Could not fetch weather data: {e}")
