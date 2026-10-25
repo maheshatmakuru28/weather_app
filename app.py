@@ -2,48 +2,39 @@ import requests
 import pandas as pd
 import streamlit as st
 
-from datetime import datetime
-
-
 # ---------------- PAGE CONFIG ----------------
 
 st.set_page_config(
-    page_title="Weather App",
-    page_icon="🌤️",
+    page_title="India Weather App",
+    page_icon="🌦️",
     layout="wide"
 )
 
-# ---------------- APP DESIGN ----------------
+# ---------------- DESIGN ----------------
 
-st.title("🌤️ Weather App")
-st.write("Check current weather and a 7-day forecast.")
-
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background: linear-gradient(135deg, #0f172a, #334155);
-        color: white;
-    }
-
-    h1 {
-        color: #facc15;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
+st.title("🇮🇳 India Weather App")
+st.write(
+    "Check weather for villages, towns and cities across India."
 )
 
+st.markdown("""
+<style>
+.stApp {
+    background: linear-gradient(135deg, #0f172a, #334155);
+    color: white;
+}
+h1 {
+    color: #facc15;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ---------------- API URLS ----------------
 
 GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
-
 WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 
-
-# ---------------- WEATHER CODES ----------------
+# ---------------- WEATHER CONDITIONS ----------------
 
 WEATHER_CODES = {
     0: "Clear Sky ☀️",
@@ -55,9 +46,9 @@ WEATHER_CODES = {
     51: "Light Drizzle 🌦️",
     53: "Drizzle 🌦️",
     55: "Heavy Drizzle 🌧️",
-    61: "Light Rain 🌦️",
+    61: "Light Rain 🌧️",
     63: "Rain 🌧️",
-    65: "Heavy Rain 🌧️",
+    65: "Heavy Rain ⛈️",
     71: "Light Snow ❄️",
     73: "Snow ❄️",
     75: "Heavy Snow ❄️",
@@ -69,36 +60,31 @@ WEATHER_CODES = {
     99: "Severe Thunderstorm ⛈️"
 }
 
+# ---------------- SEARCH LOCATIONS ----------------
 
-# ---------------- GEOCODING ----------------
-
-@st.cache_data(ttl=3600)
-def geocode(city: str):
+@st.cache_data(ttl=3600, show_spinner=False)
+def search_locations(place_name):
 
     response = requests.get(
         GEO_URL,
         params={
-            "name": city,
-            "count": 1,
+            "name": place_name,
+            "count": 10,
             "language": "en",
-            "format": "json"
+            "format": "json",
+            "countryCode": "IN"
         },
         timeout=20
     )
 
     response.raise_for_status()
 
-    results = response.json().get("results", [])
-
-    if not results:
-        return None
-
-    return results[0]
+    return response.json().get("results", [])
 
 
-# ---------------- WEATHER DATA ----------------
+# ---------------- GET WEATHER ----------------
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_weather(latitude, longitude):
 
     response = requests.get(
@@ -110,7 +96,6 @@ def get_weather(latitude, longitude):
                 "temperature_2m,"
                 "relative_humidity_2m,"
                 "apparent_temperature,"
-                "is_day,"
                 "precipitation,"
                 "weather_code,"
                 "wind_speed_10m"
@@ -132,65 +117,95 @@ def get_weather(latitude, longitude):
     return response.json()
 
 
-# ---------------- CITY INPUT ----------------
+# ---------------- USER INPUT ----------------
 
-with st.form("weather_search_form"):
+with st.form("location_search"):
 
-    city = st.text_input(
-        "📍 Enter a city",
-        value="Nellore",
-        placeholder="Example: Nellore"
+    place_name = st.text_input(
+        "📍 Enter village, town or city name",
+        placeholder="Example: Nellore, Kavali, Hyderabad"
     )
 
-    search_button = st.form_submit_button(
-        "🔍 Get Weather"
+    submitted = st.form_submit_button(
+        "🔍 Search Weather",
+        use_container_width=True
     )
 
 
-# ---------------- DISPLAY WEATHER ----------------
+# ---------------- SEARCH AND DISPLAY ----------------
 
-if search_button:
+if submitted:
 
-    if not city.strip():
-
-        st.warning("Please enter a city name.")
+    if not place_name.strip():
+        st.warning("Please enter a village or city name.")
 
     else:
 
         try:
 
-            with st.spinner("Getting weather information..."):
+            with st.spinner("Searching for your location..."):
 
-                location = geocode(city.strip())
+                locations = search_locations(
+                    place_name.strip()
+                )
 
-                if location is None:
+            if not locations:
 
-                    st.error(
-                        "City not found. Please check the city name."
-                    )
+                st.error(
+                    "Location not found in the database. "
+                    "Check the spelling or try a nearby town."
+                )
 
-                else:
+            else:
 
-                    latitude = location["latitude"]
-                    longitude = location["longitude"]
+                # Let the user select the correct location.
 
-                    weather = get_weather(
-                        latitude,
-                        longitude
-                    )
+                def location_label(location):
+
+                    parts = [
+                        location.get("name", "Unknown"),
+                        location.get("admin3"),
+                        location.get("admin2"),
+                        location.get("admin1"),
+                        location.get("country", "India")
+                    ]
+
+                    unique_parts = []
+                    for part in parts:
+                        if part and part not in unique_parts:
+                            unique_parts.append(part)
+
+                    return " - ".join(unique_parts)
+
+                selected_location = st.selectbox(
+                    "📌 Select the correct location",
+                    locations,
+                    format_func=location_label
+                )
+
+                st.info(
+                    "Select the correct village or town, "
+                    "then click the button below."
+                )
+
+                if st.button("🌤️ Get Selected Location Weather"):
+
+                    latitude = selected_location["latitude"]
+                    longitude = selected_location["longitude"]
+
+                    with st.spinner("Getting weather forecast..."):
+
+                        weather = get_weather(
+                            latitude,
+                            longitude
+                        )
 
                     current = weather["current"]
                     daily = weather["daily"]
 
-                    city_name = location["name"]
-
-                    country = location.get(
-                        "country",
-                        ""
-                    )
-
                     st.success(
-                        f"Weather for {city_name}, {country}"
+                        "Weather found for "
+                        + location_label(selected_location)
                     )
 
                     st.caption(
@@ -202,12 +217,10 @@ if search_button:
 
                     st.subheader("🌡️ Current Weather")
 
-                    weather_code = int(
-                        current["weather_code"]
-                    )
+                    code = int(current["weather_code"])
 
                     condition = WEATHER_CODES.get(
-                        weather_code,
+                        code,
                         "Weather information unavailable"
                     )
 
@@ -240,34 +253,31 @@ if search_button:
                         f"{current['precipitation']} mm"
                     )
 
-                    col6.write("**Condition**")
-
+                    col6.write("**Weather Condition**")
                     col6.write(condition)
 
                     st.caption(
-                        f"Last weather data time: "
-                        f"{current['time']}"
+                        f"Weather data time: {current['time']}"
                     )
 
                     # Seven-day forecast
 
                     st.divider()
-
-                    st.subheader("📅 7-Day Forecast")
+                    st.subheader("📅 7-Day Weather Forecast")
 
                     forecast_df = pd.DataFrame({
                         "Date": daily["time"],
                         "Condition": [
                             WEATHER_CODES.get(
-                                int(code),
+                                int(item),
                                 "Unknown"
                             )
-                            for code in daily["weather_code"]
+                            for item in daily["weather_code"]
                         ],
-                        "Max Temperature (°C)": (
+                        "Maximum Temperature (°C)": (
                             daily["temperature_2m_max"]
                         ),
-                        "Min Temperature (°C)": (
+                        "Minimum Temperature (°C)": (
                             daily["temperature_2m_min"]
                         ),
                         "Rain Probability (%)": (
@@ -293,42 +303,41 @@ if search_button:
 
         except requests.HTTPError as error:
 
-            response = error.response
+            status = (
+                error.response.status_code
+                if error.response is not None
+                else None
+            )
 
-            if response is not None and response.status_code == 429:
-
+            if status == 429:
                 st.error(
-                    "The weather service has temporarily "
-                    "limited requests. Please wait a while "
+                    "Too many requests. Please wait a while "
                     "before trying again."
                 )
-
             else:
-
                 st.error(
-                    f"Weather API error: {error}"
+                    f"Weather service error (HTTP {status}). "
+                    "Please try again later."
                 )
 
         except requests.RequestException:
-
             st.error(
-                "Unable to connect to the weather service. "
-                "Please check your internet connection "
-                "and try again later."
+                "Could not connect to the weather service. "
+                "Check your internet connection and try again."
             )
 
         except (KeyError, ValueError, TypeError):
-
             st.error(
                 "Weather data could not be processed. "
                 "Please try again later."
             )
-
 
 # ---------------- FOOTER ----------------
 
 st.divider()
 
 st.caption(
-    "Weather data provided by Open-Meteo."
+    "Weather data: Open-Meteo | "
+    "Location search: Open-Meteo Geocoding API"
 )
+```
