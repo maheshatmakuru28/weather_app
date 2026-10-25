@@ -340,4 +340,4 @@ st.caption(
     "Weather data: Open-Meteo | "
     "Location search: Open-Meteo Geocoding API"
 )
-```
+
