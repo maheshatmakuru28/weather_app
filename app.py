@@ -245,21 +245,20 @@ if search_button:
                     "Check the spelling or try a nearby town or city."
                 )
 
-        except requests.HTTPError as error:
+            except requests.HTTPError as error:
+        status = (
+            error.response.status_code
+            if error.response is not None
+            else None
+        )
 
-            status = (
-                error.response.status_code
-                if error.response is not None
-                else None
+        if status == 429:
+            st.error(
+                "Too many requests! Please wait before "
+                "searching again."
             )
-
-            if status == 429:
-
-                st.session_state.search_message = (
-                    "Too many requests. Please wait before "
-                    "searching again."
-                )
-
-            else:
-
+        else:
+            st.error(
+                "Weather service error. Please try again."
+            )
                
